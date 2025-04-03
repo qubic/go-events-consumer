@@ -15,7 +15,7 @@ store
 *.tar
 *.gz
 *.tgz
-go-events-publisher
+go-events-consumer
 
 # log file
 *.log
