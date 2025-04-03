@@ -12,6 +12,8 @@ import (
 
 type EventConsumer struct {
 	eventClient *kgo.Client
+	metrics     *Metrics
+	currentTick uint32
 }
 
 type Event struct {
@@ -26,9 +28,10 @@ type Event struct {
 	EventData       string
 }
 
-func NewEventConsumer(client *kgo.Client) *EventConsumer {
+func NewEventConsumer(client *kgo.Client, metrics *Metrics) *EventConsumer {
 	return &EventConsumer{
 		eventClient: client,
+		metrics:     metrics,
 	}
 }
 
@@ -62,10 +65,18 @@ func (c *EventConsumer) ConsumeEvents() error {
 		if err != nil {
 			return errors.Wrap(err, "failed to unmarshal event")
 		}
+
+		// within one partition order within ticks (key) is guaranteed. Tick order is not guaranteed, but we assume
+		// that messages are in order here. Worst case we have some minor metric deviations.
+		if event.Tick > c.currentTick {
+			c.currentTick = event.Tick
+			c.metrics.IncProcessedTicks()
+			c.metrics.SetProcessedTick(event.Epoch, event.Tick)
+		}
+
+		// events should be ordered by tick (not 100% but close enough, as order is only guaranteed within one tick)
+		c.metrics.IncProcessedMessages()
 		log.Printf("event: %+v", event)
 	}
-
-	c.eventClient.MarkCommitRecords()
-
 	return nil
 }

@@ -86,7 +86,7 @@ func run() error {
 	}
 	defer kcl.Close()
 
-	consumer := consume.NewEventConsumer(kcl)
+	consumer := consume.NewEventConsumer(kcl, consume.NewMetrics(cfg.Broker.MetricsNamespace))
 	if cfg.Sync.Enabled {
 		go consumer.Consume()
 	} else {
