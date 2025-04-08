@@ -17,15 +17,15 @@ type EventConsumer struct {
 }
 
 type Event struct {
-	Id              string
-	Epoch           uint32
-	Tick            uint32
-	EventId         uint64
-	EventDigest     uint64
-	TransactionHash string
-	EventType       uint32
-	EventSize       uint32
-	EventData       string
+	Id              string `json:"_id"`
+	Epoch           uint32 `json:"epoch"`
+	Tick            uint32 `json:"tick"`
+	EventId         uint64 `json:"eventId"`
+	EventDigest     uint64 `json:"eventDigest"`
+	TransactionHash string `json:"transactionHash"`
+	EventType       uint32 `json:"eventType"`
+	EventSize       uint32 `json:"eventSize"`
+	EventData       string `json:"eventData"`
 }
 
 func NewEventConsumer(client *kgo.Client, metrics *Metrics) *EventConsumer {
