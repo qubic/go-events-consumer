@@ -3,17 +3,21 @@ package consume
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"log"
 	"time"
 )
 
+type ElasticEventClient interface {
+	IndexEvent(data []byte) error
+}
+
 type EventConsumer struct {
-	eventClient *kgo.Client
-	metrics     *Metrics
-	currentTick uint32
+	eventClient   *kgo.Client
+	elasticClient ElasticEventClient
+	metrics       *Metrics
+	currentTick   uint32
 }
 
 type Event struct {
@@ -28,33 +32,40 @@ type Event struct {
 	EventData       string `json:"eventData"`
 }
 
-func NewEventConsumer(client *kgo.Client, metrics *Metrics) *EventConsumer {
+func NewEventConsumer(client *kgo.Client, elasticClient ElasticEventClient, metrics *Metrics) *EventConsumer {
+
 	return &EventConsumer{
-		eventClient: client,
-		metrics:     metrics,
+		eventClient:   client,
+		metrics:       metrics,
+		elasticClient: elasticClient,
 	}
 }
 
 func (c *EventConsumer) Consume() {
-
 	for {
-		err := c.ConsumeEvents()
-		if err != nil {
+		count, err := c.ConsumeEvents()
+		if err == nil {
+			log.Printf("Successfully processed [%d] events...", count)
+		} else {
 			log.Printf("Error consuming events: %v", err)
 		}
 		time.Sleep(time.Second)
 	}
-
 }
 
-func (c *EventConsumer) ConsumeEvents() error {
+func (c *EventConsumer) ConsumeEvents() (int, error) {
 	ctx := context.Background()
-	fetches := c.eventClient.PollFetches(ctx)
+	fetches := c.eventClient.PollRecords(ctx, 100) // batch process max 100 events in one run
 	if errs := fetches.Errors(); len(errs) > 0 {
 		// All errors are retried internally when fetching, but non-retryable errors are
 		// returned from polls so that users can notice and take action.
-		panic(fmt.Sprint(errs)) // TODO error handling
+		for _, err := range errs {
+			log.Printf("Error: %v", err)
+		}
+		return -1, errors.New("Error fetching records")
 	}
+
+	var processed int
 
 	// We can iterate through a record iterator...
 	iter := fetches.RecordIter()
@@ -63,7 +74,12 @@ func (c *EventConsumer) ConsumeEvents() error {
 		var event Event
 		err := json.Unmarshal(record.Value, &event)
 		if err != nil {
-			return errors.Wrap(err, "failed to unmarshal event")
+			return -1, errors.Wrap(err, "failed to unmarshal event")
+		}
+
+		err = c.elasticClient.IndexEvent(record.Value)
+		if err != nil {
+			return -1, err
 		}
 
 		// within one partition order within ticks (key) is guaranteed. Tick order is not guaranteed, but we assume
@@ -76,7 +92,12 @@ func (c *EventConsumer) ConsumeEvents() error {
 
 		// events should be ordered by tick (not 100% but close enough, as order is only guaranteed within one tick)
 		c.metrics.IncProcessedMessages()
-		log.Printf("event: %+v", event)
+		processed++
+		// log.Printf("event: %+v", event)
 	}
-	return nil
+	err := c.eventClient.CommitUncommittedOffsets(ctx)
+	if err != nil {
+		return -1, errors.Wrap(err, "Error committing offsets")
+	}
+	return processed, nil
 }

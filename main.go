@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/ardanlabs/conf"
+	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -30,7 +31,11 @@ func run() error {
 
 	var cfg struct {
 		Elastic struct {
-			ApiUrl string `conf:"default:localhost:9200"`
+			Addresses              []string `conf:"default:https://localhost:9200"`
+			Username               string   `conf:"default:qubic-ingestion"`
+			Password               string   `conf:"default:none"`
+			IndexName              string   `conf:"default:qubic-events-alias"`
+			CertificateFingerprint string   `conf:"default:E4:D9:0B:F5:83:3E:86:B5:F1:25:FF:37:18:81:4B:42:62:7C:7F:45:34:B6:B9:87:DB:64:F6:40:BC:D3:1E:27"`
 		}
 		Broker struct {
 			BootstrapServers string `conf:"default:localhost:9092"`
@@ -80,13 +85,22 @@ func run() error {
 		kgo.ConsumeTopics(cfg.Broker.ConsumeTopic),
 		kgo.ConsumerGroup(cfg.Broker.ConsumerGroup),
 		kgo.SeedBrokers(cfg.Broker.BootstrapServers),
+		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer kcl.Close()
 
-	consumer := consume.NewEventConsumer(kcl, consume.NewMetrics(cfg.Broker.MetricsNamespace))
+	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses:              cfg.Elastic.Addresses,
+		Username:               cfg.Elastic.Username,
+		Password:               cfg.Elastic.Password,
+		CertificateFingerprint: cfg.Elastic.CertificateFingerprint,
+	})
+	elasticClient := consume.NewElasticClient(esClient, cfg.Elastic.IndexName)
+	metrics := consume.NewMetrics(cfg.Broker.MetricsNamespace)
+	consumer := consume.NewEventConsumer(kcl, elasticClient, metrics)
 	if cfg.Sync.Enabled {
 		go consumer.Consume()
 	} else {
