@@ -38,3 +38,6 @@ go.work.sum
 .env*local
 .env.local
 
+# ca certificate
+http_ca.crt
+

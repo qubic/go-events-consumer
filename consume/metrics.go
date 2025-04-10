@@ -8,9 +8,9 @@ import (
 
 type Metrics struct {
 	processedTickGauge    prometheus.Gauge
-	processingEpochGauge  prometheus.Gauge
 	processedMessageCount prometheus.Counter
 	processedTicksCount   prometheus.Counter
+	processingEpochGauge  prometheus.Gauge
 }
 
 func NewMetrics(namespace string) *Metrics {

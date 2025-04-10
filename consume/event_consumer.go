@@ -1,27 +1,27 @@
 package consume
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"github.com/pkg/errors"
+	"github.com/qubic/go-qubic/common"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"log"
 	"time"
 )
-
-type ElasticEventClient interface {
-	IndexEvent(data []byte) error
-}
 
 type EventConsumer struct {
 	eventClient   *kgo.Client
 	elasticClient ElasticEventClient
 	metrics       *Metrics
 	currentTick   uint32
+	currentEpoch  uint32
 }
 
 type Event struct {
-	Id              string `json:"_id"`
 	Epoch           uint32 `json:"epoch"`
 	Tick            uint32 `json:"tick"`
 	EventId         uint64 `json:"eventId"`
@@ -33,7 +33,6 @@ type Event struct {
 }
 
 func NewEventConsumer(client *kgo.Client, elasticClient ElasticEventClient, metrics *Metrics) *EventConsumer {
-
 	return &EventConsumer{
 		eventClient:   client,
 		metrics:       metrics,
@@ -45,9 +44,10 @@ func (c *EventConsumer) Consume() {
 	for {
 		count, err := c.ConsumeEvents()
 		if err == nil {
-			log.Printf("Successfully processed [%d] events...", count)
+			log.Printf("Processed [%d] events. Latest tick: [%d]", count, c.currentTick)
 		} else {
-			log.Printf("Error consuming events: %v", err)
+			// if there is an error consuming we abort. We need to fix the error before trying again.
+			log.Fatalf("Error consuming events: %v", err) // exits
 		}
 		time.Sleep(time.Second)
 	}
@@ -55,7 +55,7 @@ func (c *EventConsumer) Consume() {
 
 func (c *EventConsumer) ConsumeEvents() (int, error) {
 	ctx := context.Background()
-	fetches := c.eventClient.PollRecords(ctx, 100) // batch process max 100 events in one run
+	fetches := c.eventClient.PollRecords(ctx, 1000) // batch process max 100 events in one run
 	if errs := fetches.Errors(); len(errs) > 0 {
 		// All errors are retried internally when fetching, but non-retryable errors are
 		// returned from polls so that users can notice and take action.
@@ -65,39 +65,77 @@ func (c *EventConsumer) ConsumeEvents() (int, error) {
 		return -1, errors.New("Error fetching records")
 	}
 
-	var processed int
-
+	var documents []EsDocument
 	// We can iterate through a record iterator...
 	iter := fetches.RecordIter()
 	for !iter.Done() {
+
 		record := iter.Next()
+
 		var event Event
 		err := json.Unmarshal(record.Value, &event)
 		if err != nil {
-			return -1, errors.Wrap(err, "failed to unmarshal event")
+			return -1, errors.Wrapf(err, "Error unmarshalling event %s", string(record.Value))
 		}
 
-		err = c.elasticClient.IndexEvent(record.Value)
+		documentId, err := createUniqueId(&event)
 		if err != nil {
-			return -1, err
+			return -1, errors.Wrapf(err, "Error creating id for event: %s", string(record.Value))
 		}
 
-		// within one partition order within ticks (key) is guaranteed. Tick order is not guaranteed, but we assume
-		// that messages are in order here. Worst case we have some minor metric deviations.
-		if event.Tick > c.currentTick {
-			c.currentTick = event.Tick
-			c.metrics.IncProcessedTicks()
-			c.metrics.SetProcessedTick(event.Epoch, event.Tick)
-		}
+		documents = append(documents, EsDocument{
+			id:      documentId,
+			payload: record.Value,
+		})
 
 		// events should be ordered by tick (not 100% but close enough, as order is only guaranteed within one tick)
+		if event.Tick > c.currentTick {
+			c.currentTick = event.Tick
+			c.currentEpoch = event.Epoch
+			c.metrics.IncProcessedTicks()
+
+		}
 		c.metrics.IncProcessedMessages()
-		processed++
-		// log.Printf("event: %+v", event)
 	}
-	err := c.eventClient.CommitUncommittedOffsets(ctx)
+
+	err := c.elasticClient.BulkIndexEvents(ctx, documents)
+	if err != nil {
+		return -1, errors.Wrapf(err, "Error bulk indexing [%d] documents.", len(documents))
+	}
+	c.metrics.SetProcessedTick(c.currentEpoch, c.currentTick)
+
+	err = c.eventClient.CommitUncommittedOffsets(ctx)
 	if err != nil {
 		return -1, errors.Wrap(err, "Error committing offsets")
 	}
-	return processed, nil
+	return len(documents), nil
+}
+
+func createUniqueId(event *Event) (string, error) {
+	var buff bytes.Buffer
+	err := binary.Write(&buff, binary.LittleEndian, event.Epoch)
+	if err != nil {
+		return "", errors.Wrap(err, "writing epoch to buffer")
+	}
+	err = binary.Write(&buff, binary.LittleEndian, event.Tick)
+	if err != nil {
+		return "", errors.Wrap(err, "writing tick to buffer")
+	}
+	err = binary.Write(&buff, binary.LittleEndian, event.EventId)
+	if err != nil {
+		return "", errors.Wrap(err, "writing event id to buffer")
+	}
+	err = binary.Write(&buff, binary.LittleEndian, event.EventDigest)
+	if err != nil {
+		return "", errors.Wrap(err, "writing event digest to buffer")
+	}
+	_, err = buff.Write([]byte(event.TransactionHash))
+	if err != nil {
+		return "", errors.Wrap(err, "writing transaction hash to buffer")
+	}
+	hash, err := common.K12Hash(buff.Bytes())
+	if err != nil {
+		return "", errors.Wrap(err, "failed to hash event")
+	}
+	return hex.EncodeToString(hash[:]), err
 }

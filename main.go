@@ -12,10 +12,12 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/plugin/kprom"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 const envPrefix = "QUBIC_EVENTS_CONSUMER"
@@ -31,11 +33,13 @@ func run() error {
 
 	var cfg struct {
 		Elastic struct {
-			Addresses              []string `conf:"default:https://localhost:9200"`
-			Username               string   `conf:"default:qubic-ingestion"`
-			Password               string   `conf:"default:none"`
-			IndexName              string   `conf:"default:qubic-events-alias"`
-			CertificateFingerprint string   `conf:"default:E4:D9:0B:F5:83:3E:86:B5:F1:25:FF:37:18:81:4B:42:62:7C:7F:45:34:B6:B9:87:DB:64:F6:40:BC:D3:1E:27"`
+			Addresses   []string `conf:"default:https://localhost:9200"`
+			Username    string   `conf:"default:qubic-ingestion"`
+			Password    string   `conf:"optional"`
+			IndexName   string   `conf:"default:qubic-events-alias"`
+			Certificate string   `conf:"default:http_ca.crt"`
+			MaxRetries  int      `conf:"default:15"`
+			Stub        bool     `conf:"optional"` // only for testing
 		}
 		Broker struct {
 			BootstrapServers string `conf:"default:localhost:9092"`
@@ -82,9 +86,9 @@ func run() error {
 		kprom.Gatherer(prometheus.DefaultGatherer))
 	kcl, err := kgo.NewClient(
 		kgo.WithHooks(m),
+		kgo.SeedBrokers(cfg.Broker.BootstrapServers),
 		kgo.ConsumeTopics(cfg.Broker.ConsumeTopic),
 		kgo.ConsumerGroup(cfg.Broker.ConsumerGroup),
-		kgo.SeedBrokers(cfg.Broker.BootstrapServers),
 		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
@@ -92,13 +96,27 @@ func run() error {
 	}
 	defer kcl.Close()
 
+	cert, err := os.ReadFile(cfg.Elastic.Certificate)
+	if err != nil {
+		log.Printf("[WARN] main: could not read elastic certificate: %v", err)
+	}
+
 	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses:              cfg.Elastic.Addresses,
-		Username:               cfg.Elastic.Username,
-		Password:               cfg.Elastic.Password,
-		CertificateFingerprint: cfg.Elastic.CertificateFingerprint,
+		Addresses:     cfg.Elastic.Addresses,
+		Username:      cfg.Elastic.Username,
+		Password:      cfg.Elastic.Password,
+		CACert:        cert,
+		RetryOnStatus: []int{502, 503, 504, 429},
+		MaxRetries:    cfg.Elastic.MaxRetries,
+		RetryBackoff:  calculateBackoff(),
 	})
-	elasticClient := consume.NewElasticClient(esClient, cfg.Elastic.IndexName)
+	var elasticClient consume.ElasticEventClient
+	if cfg.Elastic.Stub {
+		log.Printf("[WARN] main: Using stub ES client.")
+		elasticClient = &consume.FakeElasticClient{}
+	} else {
+		elasticClient = consume.NewElasticClient(esClient, cfg.Elastic.IndexName)
+	}
 	metrics := consume.NewMetrics(cfg.Broker.MetricsNamespace)
 	consumer := consume.NewEventConsumer(kcl, elasticClient, metrics)
 	if cfg.Sync.Enabled {
@@ -127,4 +145,22 @@ func run() error {
 			return nil
 		}
 	}
+}
+
+// calculateBackoff needs retry number because of multi threading
+func calculateBackoff() func(i int) time.Duration {
+	return func(i int) time.Duration {
+		var d time.Duration
+		if i < 10 {
+			d = time.Second*time.Duration(i) + randomMillis()
+		} else {
+			d = time.Second*30 + randomMillis()
+		}
+		log.Printf("[WARN] elasticsearch client retry [%d] in %v.", i, d)
+		return d
+	}
+}
+
+func randomMillis() time.Duration {
+	return time.Duration(rand.Intn(1000)) * time.Millisecond
 }
