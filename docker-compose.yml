@@ -9,7 +9,6 @@ services:
       QUBIC_EVENTS_CONSUMER_BROKER_BOOTSTRAP_SERVERS: "localhost:9092" # set kafka url here
       QUBIC_EVENTS_CONSUMER_ELASTIC_USERNAME: "enter-username-here" # enter elasticsearch username
       QUBIC_EVENTS_CONSUMER_ELASTIC_PASSWORD: "enter-password-here" # enter elasticsearch password
-      QUBIC_EVENTS_CONSUMER_ELASTIC_STUB: false
     volumes:
       - ./certs/elastic/http_ca.crt:/app/http_ca.crt:ro
     networks:

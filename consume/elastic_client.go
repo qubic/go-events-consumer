@@ -35,9 +35,9 @@ type EsDocument struct {
 func (c *ElasticClient) BulkIndexEvents(ctx context.Context, data []EsDocument) error {
 	start := time.Now().UnixMilli()
 	bi, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
-		Index:      c.indexName, // The default index name
-		Client:     c.esClient,  // The Elasticsearch client
-		NumWorkers: min(runtime.NumCPU(), 8),
+		Index:      c.indexName,              // The default index name
+		Client:     c.esClient,               // The Elasticsearch client
+		NumWorkers: min(runtime.NumCPU(), 8), // 8 parallel connections are enough
 	})
 	if err != nil {
 		return errors.Wrap(err, "Error creating bulk indexer")

@@ -49,8 +49,7 @@ func run() error {
 			ConsumerGroup    string `conf:"default:qubic-elastic"`
 		}
 		Sync struct {
-			InternalStoreFolder string `conf:"default:store"`
-			Enabled             bool   `conf:"default:true"`
+			Enabled bool `conf:"default:true"` // only for testing
 		}
 	}
 
@@ -122,7 +121,7 @@ func run() error {
 	if cfg.Sync.Enabled {
 		go consumer.Consume()
 	} else {
-		log.Println("main: Event processing disabled")
+		log.Println("[WARN] main: Event consuming disabled")
 	}
 
 	shutdown := make(chan os.Signal, 1)
