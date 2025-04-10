@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 	"github.com/pkg/errors"
 	"log"
@@ -26,24 +25,6 @@ func NewElasticClient(esClient *elasticsearch.Client, indexName string) *Elastic
 		esClient:  esClient,
 		indexName: indexName,
 	}
-}
-
-func (c *ElasticClient) IndexEvent(id string, data []byte) error { // TODO remove me
-	response, err := c.esClient.Index(c.indexName, bytes.NewReader(data), func(r *esapi.IndexRequest) {
-		r.DocumentID = id
-	})
-	if err != nil || response == nil {
-		return errors.Wrap(err, "Error indexing event")
-	} else if response.IsError() {
-		message := response.String()
-		_ = response.Body.Close()
-		return errors.Errorf("Error indexing event. Unexpected status code [%s]", message)
-	} else if response.HasWarnings() {
-		log.Printf("Warning indexing event: %v", response.Warnings())
-		log.Printf("Response: %s", response.String())
-	}
-	_ = response.Body.Close()
-	return nil
 }
 
 type EsDocument struct {
@@ -104,10 +85,6 @@ func (c *ElasticClient) BulkIndexEvents(ctx context.Context, data []EsDocument) 
 }
 
 type FakeElasticClient struct {
-}
-
-func (c *FakeElasticClient) IndexEvent(_ string, _ []byte) error {
-	return nil
 }
 
 func (c *FakeElasticClient) BulkIndexEvents(_ context.Context, data []EsDocument) error {
