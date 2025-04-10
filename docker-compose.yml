@@ -1,0 +1,23 @@
+services:
+  qubic-events-consumer:
+    image: ghcr.io/qubic/go-events-consumer:latest # set correct version
+    container_name: qubic-events-consumer
+    ports:
+      - "127.0.0.1:9998:9999"
+    environment:
+      QUBIC_EVENTS_CONSUMER_ELASTIC_ADDRESSES: "https://localhost:9200" # set elasticsearch url here
+      QUBIC_EVENTS_CONSUMER_BROKER_BOOTSTRAP_SERVERS: "localhost:9092" # set kafka url here
+      QUBIC_EVENTS_CONSUMER_ELASTIC_USERNAME: "enter-username-here" # enter elasticsearch username
+      QUBIC_EVENTS_CONSUMER_ELASTIC_PASSWORD: "enter-password-here" # enter elasticsearch password
+      QUBIC_EVENTS_CONSUMER_ELASTIC_STUB: false
+    volumes:
+      - ./certs/elastic/http_ca.crt:/app/http_ca.crt:ro
+    networks:
+      - qubic
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:9998/status" ]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+networks:
+  qubic:

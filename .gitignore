@@ -33,11 +33,11 @@ go-events-consumer
 go.work
 go.work.sum
 
-# env file
+# local config files
 .env
-.env*local
-.env.local
+*local*
 
 # ca certificate
+certs
 http_ca.crt
 
