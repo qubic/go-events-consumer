@@ -119,7 +119,7 @@ func run() error {
 	metrics := consume.NewMetrics(cfg.Broker.MetricsNamespace)
 	consumer := consume.NewEventConsumer(kcl, elasticClient, metrics)
 	if cfg.Sync.Enabled {
-		go consumer.Consume()
+		go consumer.Consume() // TODO go func with channel
 	} else {
 		log.Println("[WARN] main: Event consuming disabled")
 	}

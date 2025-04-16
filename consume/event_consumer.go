@@ -40,7 +40,7 @@ func NewEventConsumer(client *kgo.Client, elasticClient ElasticEventClient, metr
 	}
 }
 
-func (c *EventConsumer) Consume() {
+func (c *EventConsumer) Consume() error {
 	for {
 		count, err := c.ConsumeEvents()
 		if err == nil {
@@ -48,6 +48,7 @@ func (c *EventConsumer) Consume() {
 		} else {
 			// if there is an error consuming we abort. We need to fix the error before trying again.
 			log.Fatalf("Error consuming events: %v", err) // exits
+			// TODO return error
 		}
 		time.Sleep(time.Second)
 	}
