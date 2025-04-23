@@ -15,7 +15,7 @@ type Metrics struct {
 
 func NewMetrics(namespace string) *Metrics {
 	m := Metrics{
-		// metrics for epoch, tick, event processing
+		// metrics for epoch, tick, message processing
 		processedTickGauge: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: fmt.Sprintf("%s_processed_tick", namespace),
 			Help: "The latest fully processed tick",
