@@ -3,7 +3,7 @@ Service for consuming qubic events from a message broker
 
 ## Build
 
-`go build` in the root directory will create the `go-events-publisher` executable.
+`go build` in the root directory will create the `go-events-consumer` executable.
 
 ## Run tests
 
@@ -11,7 +11,7 @@ Service for consuming qubic events from a message broker
 
 ## Configuration options
 
-You can use command line properties or environment variables. Environment variables need to be prefixed with `QUBIC_EVENTS_PUBLISHER_`.
+You can use command line properties or environment variables. Environment variables need to be prefixed with `QUBIC_EVENTS_CONSUMER_`.
 
 The following properties (with defaults) can be set:
 
