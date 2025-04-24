@@ -47,8 +47,8 @@ func (c *EventConsumer) Consume() error {
 			log.Printf("Processed [%d] events. Latest tick: [%d]", count, c.currentTick)
 		} else {
 			// if there is an error consuming we abort. We need to fix the error before trying again.
-			log.Fatalf("Error consuming events: %v", err) // exits
-			// TODO return error
+			log.Printf("Error consuming batch: %v", err) // exits
+			return errors.Wrap(err, "Error consuming batch")
 		}
 		time.Sleep(time.Second)
 	}
